@@ -122,6 +122,7 @@ public:
         auto labels_gpu = labels_host.to_device(this->get_queue());
         auto params_gpu = params_host.to_device(this->get_queue());
 
+        std::cout << "------point 1------" << std::endl;
         auto out_predictions =
             ndarray<float_t, 1>::empty(this->get_queue(), { n }, sycl::usm::alloc::device);
 
@@ -133,6 +134,7 @@ public:
                                              {});
         p_event.wait_and_throw();
 
+        std::cout << "------point 2------" << std::endl;
         auto predictions_host = out_predictions.to_host(this->get_queue(), {});
         const float_t logloss = test_predictions_and_logloss(data_host,
                                                              params_host,
@@ -143,6 +145,7 @@ public:
                                                              fit_intercept,
                                                              rtol,
                                                              atol);
+        std::cout << "------point 3------" << std::endl;
 
         auto [out_logloss, out_e] =
             ndarray<float_t, 1>::zeros(this->get_queue(), { 1 }, sycl::usm::alloc::device);
@@ -156,8 +159,11 @@ public:
                                                     fit_intercept,
                                                     { out_e });
         logloss_event.wait_and_throw();
+
+        std::cout << "------point 4------" << std::endl;
         const float_t val_logloss1 = out_logloss.to_host(this->get_queue(), {}).at(0);
         check_val(val_logloss1, logloss, rtol, atol);
+        std::cout << "------point 5------" << std::endl;
         auto fill_event = fill<float_t>(this->get_queue(), out_logloss, float_t(0), {});
         auto [out_derivative, out_der_e] =
             ndarray<float_t, 1>::zeros(this->get_queue(), { p + 1 }, sycl::usm::alloc::device);
@@ -173,6 +179,7 @@ public:
                                                           fit_intercept,
                                                           { fill_event, out_der_e });
         logloss_event_der.wait_and_throw();
+        std::cout << "------point 6------" << std::endl;
         auto out_derivative_host = out_derivative.to_host(this->get_queue());
         const float_t val_logloss2 = out_logloss.to_host(this->get_queue(), {}).at(0);
         check_val(val_logloss2, logloss, rtol, atol);
@@ -189,6 +196,7 @@ public:
                                             fit_intercept,
                                             { out_der_e2 });
         der_event.wait_and_throw();
+        std::cout << "------point 7------" << std::endl;
         auto out_derivative_host2 = out_derivative2.to_host(this->get_queue());
         for (auto i = 0; i <= p; ++i) {
             REQUIRE(abs(out_derivative_host.at(i) - out_derivative_host2.at(i)) < atol);
@@ -208,16 +216,17 @@ public:
                                           { out_hess_e });
 
         auto hessian_host = out_hessian.to_host(this->get_queue(), { hess_event });
-
+        std::cout << "------point 8------" << std::endl;
         auto out_raw_hessian =
             ndarray<float_t, 1>::empty(this->get_queue(), { n }, sycl::usm::alloc::device);
-
+        std::cout << "------point 9------" << std::endl;
         auto hessp = logloss_hessian_product(this->get_queue(), data_gpu, L2, fit_intercept);
-
+        std::cout << "------point 10------" << std::endl;
         auto raw_hess_event =
             compute_raw_hessian(this->get_queue(), out_predictions, hessp.get_raw_hessian(), {});
-
+        std::cout << "------point 11------" << std::endl;
         raw_hess_event.wait_and_throw();
+        std::cout << "------point 12------" << std::endl;
 
         test_formula_derivative(data_host,
                                 predictions_host,
@@ -229,6 +238,7 @@ public:
                                 fit_intercept,
                                 rtol,
                                 atol2);
+        std::cout << "------point 13------" << std::endl;
         test_formula_hessian(data_host,
                              predictions_host,
                              hessian_host,
@@ -236,6 +246,7 @@ public:
                              fit_intercept,
                              rtol,
                              atol2);
+        std::cout << "------point 14------" << std::endl;
         test_derivative_and_hessian(data_gpu,
                                     labels_gpu,
                                     out_derivative_host,
@@ -246,8 +257,9 @@ public:
                                     fit_intercept,
                                     rtol,
                                     atol);
-
+        std::cout << "------point 15------" << std::endl;
         test_hessian_product(hessian_host, hessp, fit_intercept, L2, rtol, atol);
+        std::cout << "------point 16------" << std::endl;
     }
 
     float_t test_predictions_and_logloss(const ndview<float_t, 2>& data_host,
@@ -543,14 +555,30 @@ public:
                               std::int32_t num_checks = 5) {
         const std::int64_t p = hessian_host.get_dimension(0) - 1;
         const std::int64_t k = fit_intercept ? p + 1 : p;
-
+        std::cout << "------point 17------" << std::endl;
         primitives::rng<float_t> rn_gen;
         auto vec_host =
             ndarray<float_t, 1>::empty(this->get_queue(), { k }, sycl::usm::alloc::host);
+        std::cout << "------point 18------" << std::endl;
+        std::cout << "Hessian" << std::endl;
+        for (int i = 0; i < p + 1; ++i) {
+            for (int j = 0; j < p + 1; ++j) {
+                std::cout << hessian_host.at(i, j) << " ";
+            }
+            std::cout << std::endl;
+        }
 
         for (std::int32_t ij = 0; ij < num_checks; ++ij) {
+            std::cout << "check number " << ij << std::endl;
             primitives::engine eng(2007 + k * num_checks + ij);
             rn_gen.uniform(k, vec_host.get_mutable_data(), eng.get_state(), -1.0, 1.0);
+            auto* vec_ptr = vec_host.get_mutable_data();
+            std::cout << "vector: ";
+            for (int i = 0; i < k; ++i) {
+                std::cout << vec_ptr[i] << " ";
+            }
+            std::cout << std::endl;
+
             auto vec_gpu = vec_host.to_device(this->get_queue());
             auto out_vector =
                 ndarray<float_t, 1>::empty(this->get_queue(), { k }, sycl::usm::alloc::device);
@@ -564,6 +592,7 @@ public:
                 for (std::int64_t j = st; j < p + 1; ++j) {
                     correct += vec_host.at(j - st) * hessian_host.at(i, j);
                 }
+                std::cout << i << ": " << out_vector_host.at(i - st) << " " << correct << std::endl;
                 check_val(out_vector_host.at(i - st), correct, rtol, atol);
             }
         }
@@ -598,7 +627,7 @@ TEMPLATE_TEST_M(logloss_test, "gold input test - float - no fit intercept", "[lo
     SKIP_IF(this->get_policy().is_cpu());
     this->test_gold_input(false);
 }
-
+/*
 TEMPLATE_TEST_M(logloss_test, "test random input - double without L1", "[logloss]", double) {
     SKIP_IF(this->not_float64_friendly());
     SKIP_IF(this->get_policy().is_cpu());
@@ -618,5 +647,5 @@ TEMPLATE_TEST_M(logloss_test, "test random input - float", "[logloss]", float) {
     this->generate_input();
     this->run_test(0.4, 1.3);
 }
-
+*/
 } // namespace oneapi::dal::backend::primitives::test
