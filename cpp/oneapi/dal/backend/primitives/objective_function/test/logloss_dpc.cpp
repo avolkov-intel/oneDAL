@@ -227,6 +227,14 @@ public:
         std::cout << "------point 11------" << std::endl;
         raw_hess_event.wait_and_throw();
         std::cout << "------point 12------" << std::endl;
+        auto raw_hessian_host = hessp.get_raw_hessian().to_host(this->get_queue());
+        auto raw_hess_ptr = raw_hessian_host.get_data();
+
+        std::cout << "Raw hessian" << std::endl;
+        for (int i = 0; i < n; ++i) {
+            std::cout << raw_hess_ptr[i] << " ";
+        }
+        std::cout << std::endl;
 
         test_formula_derivative(data_host,
                                 predictions_host,

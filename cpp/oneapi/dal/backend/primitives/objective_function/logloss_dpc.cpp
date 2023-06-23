@@ -526,8 +526,13 @@ sycl::event logloss_hessian_product<Float>::compute_with_fit_intercept(const ndv
     sycl::event fill_out_event = copy(q_, out_suf, vec_suf, deps);
     sycl::event fill_out0_event = fill<Float>(q_, out_bias, Float(0), deps);
 
+    fill_out_event.wait_and_throw();
+    fill_out0_event.wait_and_throw();
+
     Float v0 = vec.at_device(q_, 0, deps);
     sycl::event event_xv = gemv(q_, data_, vec_suf, buffer_, Float(1), v0, { fill_buffer_event });
+
+    event_xv.wait_and_throw();
 
     sycl::event event_dxv = q_.submit([&](sycl::handler& cgh) {
         cgh.depends_on({ event_xv, fill_out_event, fill_out0_event });
@@ -538,6 +543,9 @@ sycl::event logloss_hessian_product<Float>::compute_with_fit_intercept(const ndv
             sum_v0 += buffer_ptr[idx];
         });
     });
+
+    event_dxv.wait_and_throw();
+
     auto event_xtdxv =
         gemv(q_, data_.t(), buffer_, out_suf, Float(1), L2_ * 2, { event_dxv, fill_out_event });
     return event_xtdxv;
