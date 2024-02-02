@@ -55,6 +55,9 @@ std::pair<sycl::event, std::int64_t> newton_cg(sycl::queue& queue,
     Float update_norm = tol + 1;
 
     std::int64_t cur_iter_id = 0;
+
+    std::int64_t cg_iters = 0;
+    std::int64_t cg_runs = 0;
     while (cur_iter_id < maxiter) {
         cur_iter_id++;
         auto update_event_vec = f.update_x(x, true, last_iter_deps);
@@ -64,6 +67,8 @@ std::pair<sycl::event, std::int64_t> newton_cg(sycl::queue& queue,
         l1_norm(queue, gradient, tmp_gpu, &grad_norm, update_event_vec).wait_and_throw();
         max_abs(queue, gradient, tmp_gpu, &grad_max_abs, update_event_vec).wait_and_throw();
 
+        //std::cout << "L1-norm: " << grad_norm << std::endl;
+        // std::cout << "Max-abs: " << grad_max_abs << std::endl;
         if (grad_max_abs < tol) {
             // TODO check that conditions are the same across diferent devices
             break;
@@ -98,11 +103,13 @@ std::pair<sycl::event, std::int64_t> newton_cg(sycl::queue& queue,
                                                       Float(0),
                                                       maxinner,
                                                       { last_event });
+            cg_iters += inner_iter;
 
             // <-grad, direction> should be > 0 if direction is descent direction
             last_event = dot_product(queue, gradient, direction, tmp_gpu, &desc, { solve_event });
             last_event.wait_and_throw();
         }
+        cg_runs += iter_num;
 
         if (desc < 0) {
             // failed to find descent direction
@@ -127,6 +134,8 @@ std::pair<sycl::event, std::int64_t> newton_cg(sycl::queue& queue,
         last = copy(queue, x, buffer2, {});
         last_iter_deps = { last };
     }
+    std::cout << "CG-solver runs: " << cg_runs << std::endl;
+    std::cout << "CG iterations: " << cg_iters << std::endl;
     return { last, cur_iter_id };
 }
 
