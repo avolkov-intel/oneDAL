@@ -57,18 +57,24 @@ std::pair<sycl::event, std::int64_t> newton_cg(sycl::queue& queue,
     std::int64_t cur_iter_id = 0;
 
     std::int64_t cg_iters = 0;
-    std::int64_t cg_runs = 0;
+    // std::int64_t cg_runs = 0;
+    std::vector<Float> losses;
+    std::vector<Float> grad_norms;
+    std::vector<std::int64_t> iter_log;
     while (cur_iter_id < maxiter) {
         cur_iter_id++;
         auto update_event_vec = f.update_x(x, true, last_iter_deps);
+
+        wait_or_pass(update_event_vec).wait_and_throw();
+        losses.push_back(f.get_value());
+
         auto gradient = f.get_gradient();
 
         Float grad_norm = 0, grad_max_abs = 0;
         l1_norm(queue, gradient, tmp_gpu, &grad_norm, update_event_vec).wait_and_throw();
         max_abs(queue, gradient, tmp_gpu, &grad_max_abs, update_event_vec).wait_and_throw();
+        grad_norms.push_back(grad_norm);
 
-        //std::cout << "L1-norm: " << grad_norm << std::endl;
-        // std::cout << "Max-abs: " << grad_max_abs << std::endl;
         if (grad_max_abs < tol) {
             // TODO check that conditions are the same across diferent devices
             break;
@@ -104,12 +110,13 @@ std::pair<sycl::event, std::int64_t> newton_cg(sycl::queue& queue,
                                                       maxinner,
                                                       { last_event });
             cg_iters += inner_iter;
+            iter_log.push_back(inner_iter);
 
             // <-grad, direction> should be > 0 if direction is descent direction
             last_event = dot_product(queue, gradient, direction, tmp_gpu, &desc, { solve_event });
             last_event.wait_and_throw();
         }
-        cg_runs += iter_num;
+        //cg_runs += iter_num;
 
         if (desc < 0) {
             // failed to find descent direction
@@ -134,8 +141,30 @@ std::pair<sycl::event, std::int64_t> newton_cg(sycl::queue& queue,
         last = copy(queue, x, buffer2, {});
         last_iter_deps = { last };
     }
-    std::cout << "CG-solver runs: " << cg_runs << std::endl;
-    std::cout << "CG iterations: " << cg_iters << std::endl;
+    //std::cout << "CG-solver runs: " << cg_runs << std::endl;
+    std::cout << "CG iterations: " + std::to_string(cg_iters) + "\n" << std::endl;
+
+    std::string s1 = "Losses, ";
+    for (auto elem : losses) {
+        s1 += std::to_string(elem) + ",";
+    }
+    s1 += "\n";
+    std::cout << s1 << std::endl;
+
+    s1 = "Grad norms, ";
+    for (auto elem : grad_norms) {
+        s1 += std::to_string(elem) + ",";
+    }
+    s1 += "\n";
+    std::cout << s1 << std::endl;
+
+    s1 = "Iter log, ";
+    for (auto elem : iter_log) {
+        s1 += std::to_string(elem) + ",";
+    }
+    s1 += "\n";
+    std::cout << s1 << std::endl;
+
     return { last, cur_iter_id };
 }
 
