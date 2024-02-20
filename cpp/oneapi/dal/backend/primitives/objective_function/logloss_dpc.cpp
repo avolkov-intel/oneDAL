@@ -578,9 +578,9 @@ sycl::event logloss_hessian_product<Float>::compute_with_fit_intercept(const ndv
 
     if (comm_.get_rank_count() > 1) {
         sycl::event::wait_and_throw(last_iter_deps);
+        auto hessp_arr = dal::array<Float>::wrap(q_, out.get_mutable_data(), out.get_count());
         {
             ONEDAL_PROFILER_TASK(hessp_allreduce);
-            auto hessp_arr = dal::array<Float>::wrap(q_, out.get_mutable_data(), out.get_count());
             comm_.allreduce(hessp_arr).wait();
         }
     }
@@ -649,12 +649,10 @@ sycl::event logloss_hessian_product<Float>::compute_without_fit_intercept(
     }
 
     if (comm_.get_rank_count() > 1) {
+        auto hessp_arr =
+            dal::array<Float>::wrap(q_, out.get_mutable_data(), out.get_count(), last_iter_deps);
         {
             ONEDAL_PROFILER_TASK(hessp_allreduce);
-            auto hessp_arr = dal::array<Float>::wrap(q_,
-                                                     out.get_mutable_data(),
-                                                     out.get_count(),
-                                                     last_iter_deps);
             comm_.allreduce(hessp_arr).wait();
         }
     }
@@ -795,12 +793,12 @@ event_vector logloss_function<Float>::update_x(const ndview<Float, 1>& x,
     }
 
     if (comm_.get_rank_count() > 1) {
+        auto gradient_arr = dal::array<Float>::wrap(q_,
+                                                    gradient_.get_mutable_data(),
+                                                    gradient_.get_count(),
+                                                    last_iter_e);
         {
             ONEDAL_PROFILER_TASK(gradient_allreduce);
-            auto gradient_arr = dal::array<Float>::wrap(q_,
-                                                        gradient_.get_mutable_data(),
-                                                        gradient_.get_count(),
-                                                        last_iter_e);
             comm_.allreduce(gradient_arr).wait();
         }
         {
