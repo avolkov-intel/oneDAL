@@ -254,6 +254,7 @@ public:
                                 L1,
                                 L2,
                                 fit_intercept,
+                                0l,
                                 rtol,
                                 atol);
         test_formula_hessian(data_host,
@@ -265,6 +266,15 @@ public:
                              atol);
 
         if (L1 == 0) {
+            float_t logloss_scaled =
+                naive_logloss(data_host, params_host, labels_host, L1, L2, fit_intercept, n);
+
+            auto gth_hessian_scaled = ndarray<float_t, 2>::empty(this->get_queue(),
+                                                                 { p + 1, p + 1 },
+                                                                 sycl::usm::alloc::host);
+
+            naive_hessian(data_host, predictions_host, gth_hessian_scaled, L2, fit_intercept, n);
+
             std::int64_t bsz = -1;
             if (batch_test) {
                 bsz = GENERATE(4, 8, 16, 20, 37, 512);
@@ -278,16 +288,23 @@ public:
                                                      bsz);
             auto set_point_event = functor.update_x(params_gpu, true, {});
             wait_or_pass(set_point_event).wait_and_throw();
-
-            check_val(logloss, functor.get_value(), rtol, atol);
+            check_val(logloss_scaled, functor.get_value(), rtol, atol);
             auto grad_func = functor.get_gradient();
             auto grad_func_host = grad_func.to_host(this->get_queue());
-            std::int64_t dim = fit_intercept ? p + 1 : p;
-            for (std::int64_t i = 0; i < dim; ++i) {
-                check_val(out_derivative_host.at(i), grad_func_host.at(i), rtol, atol);
-            }
+
+            test_formula_derivative(data_host,
+                                    predictions_host,
+                                    params_host,
+                                    labels_host,
+                                    grad_func_host,
+                                    L1,
+                                    L2,
+                                    fit_intercept,
+                                    n,
+                                    rtol,
+                                    atol);
             base_matrix_operator<float_t>& hessp = functor.get_hessian_product();
-            test_hessian_product(hessian_host, hessp, fit_intercept, L2, rtol, atol);
+            test_hessian_product(gth_hessian_scaled, hessp, fit_intercept, L2, rtol, atol);
         }
     }
 
@@ -344,7 +361,8 @@ public:
                          const ndview<std::int32_t, 1>& labels_host,
                          const float_t L1,
                          const float_t L2,
-                         bool fit_intercept) {
+                         bool fit_intercept,
+                         std::int64_t n_scaling = 0) {
         const std::int64_t n = data_host.get_dimension(0);
         const std::int64_t p = data_host.get_dimension(1);
 
@@ -359,6 +377,9 @@ public:
                 pred += (double)params_host.at(0);
             }
             logloss += std::log(1 + std::exp(-(2 * labels_host.at(i) - 1) * pred));
+        }
+        if (n_scaling > 0) {
+            logloss /= n_scaling;
         }
         for (std::int64_t i = 0; i < p; ++i) {
             logloss += L1 * abs(params_host.at(i + st));
@@ -394,7 +415,8 @@ public:
                           ndview<float_t, 1>& out_der,
                           float_t L1,
                           float_t L2,
-                          bool fit_intercept) {
+                          bool fit_intercept,
+                          std::int64_t n_scaling = 0) {
         const std::int64_t n = data.get_dimension(0);
         const std::int64_t dim = params.get_dimension(0);
         for (std::int64_t j = 0; j < dim; ++j) {
@@ -410,6 +432,9 @@ public:
                 double prob = probabilities.at(i);
                 val += (prob - labels.at(i)) * x1;
             }
+            if (n_scaling > 0) {
+                val /= n_scaling;
+            }
             val += (!fit_intercept || 0 < j) ? L2 * 2 * params.at(j) : 0;
             out_der.at(j) = val;
         }
@@ -419,7 +444,8 @@ public:
                        const ndview<float_t, 1>& probabilities_host,
                        ndview<float_t, 2>& out_hessian,
                        float_t L2,
-                       bool fit_intercept) {
+                       bool fit_intercept,
+                       std::int64_t n_scaling = 0) {
         const std::int64_t n = data_host.get_dimension(0);
         const std::int64_t p = data_host.get_dimension(1);
         const std::int64_t start_ind = (fit_intercept ? 0 : 1);
@@ -433,6 +459,9 @@ public:
                     val += x1 * x2 * (1 - prob) * prob;
                 }
                 out_hessian.at(j, k) = val;
+                if (n_scaling > 0) {
+                    out_hessian.at(j, k) /= n_scaling;
+                }
             }
             if (j > 0) {
                 out_hessian.at(j, j) += 2 * L2;
@@ -454,6 +483,7 @@ public:
                                  const float_t L1,
                                  const float_t L2,
                                  bool fit_intercept,
+                                 std::int64_t n_scaling = 0,
                                  const float_t rtol = 1e-3,
                                  const float_t atol = 1e-3) {
         const std::int64_t dim = params.get_dimension(0);
@@ -467,7 +497,8 @@ public:
                          out_derivative,
                          L1,
                          L2,
-                         fit_intercept);
+                         fit_intercept,
+                         n_scaling);
 
         for (std::int64_t i = 0; i < dim; ++i) {
             check_val(out_derivative.at(i), derivative.at(i), rtol, atol);
@@ -479,13 +510,14 @@ public:
                               const ndview<float_t, 2>& hessian,
                               const float_t L2,
                               bool fit_intercept,
+                              std::int64_t n_scaling = 0,
                               const float_t rtol = 1e-3,
                               const float_t atol = 1e-3) {
         const std::int64_t p = data.get_dimension(1);
         auto out_hessian =
             ndarray<float_t, 2>::empty(this->get_queue(), { p + 1, p + 1 }, sycl::usm::alloc::host);
 
-        naive_hessian(data, probabilities, out_hessian, L2, fit_intercept);
+        naive_hessian(data, probabilities, out_hessian, L2, fit_intercept, n_scaling);
 
         for (std::int64_t i = 0; i <= p; ++i) {
             for (std::int64_t j = 0; j <= p; ++j) {

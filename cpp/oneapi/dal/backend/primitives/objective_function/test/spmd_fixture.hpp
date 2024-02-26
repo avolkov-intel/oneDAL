@@ -82,6 +82,8 @@ public:
             thr_cnt = GENERATE(2, 4, 5);
         }
 
+        const std::int64_t n_all = this->data_.get_row_count();
+
         constexpr float_t rtol = sizeof(float_t) > 4 ? 1e-6 : 1e-4;
         constexpr float_t atol = sizeof(float_t) > 4 ? 1e-6 : 1e-2;
         auto labels_gpu = this->labels_.to_device(this->get_queue());
@@ -124,6 +126,8 @@ public:
 
         REQUIRE(results.size() == dal::detail::integral_cast<std::size_t>(thr_cnt));
 
+        std::cerr << "after init" << std::endl;
+
         auto data_array = row_accessor<const float_t>{ this->data_ }.pull(this->get_queue());
         auto data_host = ndarray<float_t, 2>::wrap(data_array.get_data(), { this->n_, this->p_ });
         auto probs_gth =
@@ -143,7 +147,8 @@ public:
                                                  this->labels_,
                                                  float_t(0.0),
                                                  float_t(L2),
-                                                 fit_intercept);
+                                                 fit_intercept,
+                                                 n_all);
         this->naive_derivative(data_host,
                                probs_gth,
                                params_host,
@@ -151,7 +156,10 @@ public:
                                grad_gth,
                                float_t(0.0),
                                float_t(L2),
-                               fit_intercept);
+                               fit_intercept,
+                               n_all);
+
+        std::cerr << "before logloss check" << std::endl;
         for (std::int64_t k = 0; k < thr_cnt; ++k) {
             this->check_val(std::get<0>(results[k]), logloss_gth, rtol, atol);
         }
@@ -163,7 +171,7 @@ public:
             }
         }
 
-        this->naive_hessian(data_host, probs_gth, hess_gth, float_t(L2), fit_intercept);
+        this->naive_hessian(data_host, probs_gth, hess_gth, float_t(L2), fit_intercept, n_all);
 
         const std::int64_t st = fit_intercept ? 0 : 1;
 

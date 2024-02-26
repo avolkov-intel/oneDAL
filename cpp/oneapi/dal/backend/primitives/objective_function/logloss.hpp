@@ -142,6 +142,7 @@ private:
     ndarray<Float, 1> buffer_;
     ndarray<Float, 1> tmp_gpu_;
     const std::int64_t n_;
+    std::int64_t n_all_;
     const std::int64_t p_;
     const std::int64_t bsz_;
 };
@@ -176,6 +177,7 @@ private:
     const table data_;
     const ndview<std::int32_t, 1> labels_;
     const std::int64_t n_;
+    std::int64_t n_all_;
     const std::int64_t p_;
     Float L2_;
     bool fit_intercept_;

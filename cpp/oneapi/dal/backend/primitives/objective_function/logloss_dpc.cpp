@@ -485,6 +485,7 @@ logloss_hessian_product<Float>::logloss_hessian_product(sycl::queue& q,
           L2_(L2),
           fit_intercept_(fit_intercept),
           n_(data.get_row_count()),
+          n_all_(data.get_row_count()),
           p_(data.get_column_count()),
           bsz_(bsz == -1 ? get_block_size(n_, p_) : bsz) {
     raw_hessian_ = ndarray<Float, 1>::empty(q_, { n_ }, sycl::usm::alloc::device);
@@ -505,8 +506,14 @@ logloss_hessian_product<Float>::logloss_hessian_product(sycl::queue& q,
           L2_(L2),
           fit_intercept_(fit_intercept),
           n_(data.get_row_count()),
+          n_all_(data.get_row_count()),
           p_(data.get_column_count()),
           bsz_(bsz == -1 ? get_block_size(n_, p_) : bsz) {
+    if (comm_.get_rank_count() > 1) {
+        ONEDAL_PROFILER_TASK(num_samples_all_reduce);
+        comm_.allreduce(n_all_).wait();
+    }
+
     raw_hessian_ = ndarray<Float, 1>::empty(q_, { n_ }, sycl::usm::alloc::device);
     buffer_ = ndarray<Float, 1>::empty(q_, { n_ }, sycl::usm::alloc::device);
     tmp_gpu_ = ndarray<Float, 1>::empty(q_, { p_ + 1 }, sycl::usm::alloc::device);
@@ -537,6 +544,11 @@ sycl::event logloss_hessian_product<Float>::compute_with_fit_intercept(const ndv
     Float v0 = vec.at_device(q_, 0, deps);
 
     const uniform_blocking blocking(n_, bsz_);
+    const Float inv_n = Float(1) / n_all_;
+
+    const auto scale_kernel = [=](const Float val, Float) -> Float {
+        return val * inv_n;
+    };
 
     row_accessor<const Float> data_accessor(data_);
     event_vector last_iter_deps = { fill_buffer_event, fill_out_event };
@@ -576,11 +588,16 @@ sycl::event logloss_hessian_product<Float>::compute_with_fit_intercept(const ndv
         last_iter_deps = { update_result_e };
     }
 
+    // Divide out by n_all_
+    sycl::event scale_event = element_wise(q_, scale_kernel, out, Float(0), out, last_iter_deps);
+
     if (comm_.get_rank_count() > 1) {
-        sycl::event::wait_and_throw(last_iter_deps);
         {
             ONEDAL_PROFILER_TASK(hessp_allreduce);
-            auto hessp_arr = dal::array<Float>::wrap(q_, out.get_mutable_data(), out.get_count());
+            auto hessp_arr = dal::array<Float>::wrap(q_,
+                                                     out.get_mutable_data(),
+                                                     out.get_count(),
+                                                     { scale_event });
             comm_.allreduce(hessp_arr).wait();
         }
     }
@@ -592,7 +609,7 @@ sycl::event logloss_hessian_product<Float>::compute_with_fit_intercept(const ndv
     };
 
     auto add_regularization_event =
-        element_wise(q_, kernel_regularization, out_suf, vec_suf, out_suf, last_iter_deps);
+        element_wise(q_, kernel_regularization, out_suf, vec_suf, out_suf, { scale_event });
     return add_regularization_event;
 }
 
@@ -608,6 +625,11 @@ sycl::event logloss_hessian_product<Float>::compute_without_fit_intercept(
     sycl::event fill_out_event = fill<Float>(q_, out, Float(0), deps);
 
     const uniform_blocking blocking(n_, bsz_);
+    const Float inv_n = Float(1) / n_all_;
+
+    const auto scale_kernel = [=](const Float val, Float) -> Float {
+        return val * inv_n;
+    };
 
     ndview<Float, 1> tmp_ndview = tmp_gpu_.slice(0, p_);
 
@@ -648,13 +670,16 @@ sycl::event logloss_hessian_product<Float>::compute_without_fit_intercept(
         last_iter_deps = { update_grad_e };
     }
 
+    // Divivde out by n_all_
+    sycl::event scale_event = element_wise(q_, scale_kernel, out, Float(0), out, last_iter_deps);
+
     if (comm_.get_rank_count() > 1) {
         {
             ONEDAL_PROFILER_TASK(hessp_allreduce);
             auto hessp_arr = dal::array<Float>::wrap(q_,
                                                      out.get_mutable_data(),
                                                      out.get_count(),
-                                                     last_iter_deps);
+                                                     { scale_event });
             comm_.allreduce(hessp_arr).wait();
         }
     }
@@ -666,7 +691,7 @@ sycl::event logloss_hessian_product<Float>::compute_without_fit_intercept(
     };
 
     auto add_regularization_event =
-        element_wise(q_, kernel_regularization, out, vec, out, last_iter_deps);
+        element_wise(q_, kernel_regularization, out, vec, out, { scale_event });
 
     return add_regularization_event;
 }
@@ -694,6 +719,7 @@ logloss_function<Float>::logloss_function(sycl::queue q,
           data_(data),
           labels_(labels),
           n_(data.get_row_count()),
+          n_all_(data.get_row_count()),
           p_(data.get_column_count()),
           L2_(L2),
           fit_intercept_(fit_intercept),
@@ -719,6 +745,7 @@ logloss_function<Float>::logloss_function(sycl::queue q,
           data_(data),
           labels_(labels),
           n_(data.get_row_count()),
+          n_all_(data.get_row_count()),
           p_(data.get_column_count()),
           L2_(L2),
           fit_intercept_(fit_intercept),
@@ -729,6 +756,11 @@ logloss_function<Float>::logloss_function(sycl::queue q,
     probabilities_ = ndarray<Float, 1>::empty(q_, { n_ }, sycl::usm::alloc::device);
     gradient_ = ndarray<Float, 1>::empty(q_, { dimension_ }, sycl::usm::alloc::device);
     buffer_ = ndarray<Float, 1>::empty(q_, { p_ + 2 }, sycl::usm::alloc::device);
+
+    if (comm_.get_rank_count() > 1) {
+        ONEDAL_PROFILER_TASK(num_samples_all_reduce);
+        comm_.allreduce(n_all_).wait();
+    }
 }
 
 template <typename Float>
@@ -740,6 +772,11 @@ event_vector logloss_function<Float>::update_x(const ndview<Float, 1>& x,
     value_ = 0;
     auto fill_event = fill(q_, gradient_, Float(0), deps);
     const uniform_blocking blocking(n_, bsz_);
+    const Float inv_n = Float(1) / n_all_;
+
+    const auto scale_kernel = [=](const Float val, Float) -> Float {
+        return val * inv_n;
+    };
 
     event_vector last_iter_e = { fill_event };
 
@@ -794,13 +831,18 @@ event_vector logloss_function<Float>::update_x(const ndview<Float, 1>& x,
         wait_or_pass(last_iter_e).wait_and_throw();
     }
 
+    // Divide by n_all_
+    value_ /= n_all_;
+    sycl::event scale_event =
+        element_wise(q_, scale_kernel, gradient_, Float(0), gradient_, last_iter_e);
+
     if (comm_.get_rank_count() > 1) {
         {
             ONEDAL_PROFILER_TASK(gradient_allreduce);
             auto gradient_arr = dal::array<Float>::wrap(q_,
                                                         gradient_.get_mutable_data(),
                                                         gradient_.get_count(),
-                                                        last_iter_e);
+                                                        { scale_event });
             comm_.allreduce(gradient_arr).wait();
         }
         {
@@ -810,14 +852,14 @@ event_vector logloss_function<Float>::update_x(const ndview<Float, 1>& x,
     }
 
     if (L2_ > 0) {
-        auto fill_loss_e = fill(q_, loss_batch, Float(0), { last_iter_e });
+        auto fill_loss_e = fill(q_, loss_batch, Float(0), { scale_event });
         auto loss_ptr = loss_batch.get_mutable_data();
         auto grad_ptr = gradient_.get_mutable_data();
         auto w_ptr = x.get_data();
         Float regularization_factor = L2_;
 
         auto regularization_e = q_.submit([&](sycl::handler& cgh) {
-            cgh.depends_on(last_iter_e + fill_loss_e);
+            cgh.depends_on({ fill_loss_e });
             const auto range = make_range_1d(p_);
             const std::int64_t st_id = fit_intercept_;
             auto sum_reduction = sycl::reduction(loss_ptr, sycl::plus<>());
@@ -830,10 +872,10 @@ event_vector logloss_function<Float>::update_x(const ndview<Float, 1>& x,
 
         value_ += loss_batch.at_device(q_, 0, { regularization_e });
 
-        last_iter_e = { regularization_e };
+        return { regularization_e };
     }
 
-    return last_iter_e;
+    return { scale_event };
 }
 
 template <typename Float>
