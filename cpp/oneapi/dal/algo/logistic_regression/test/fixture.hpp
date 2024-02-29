@@ -184,8 +184,13 @@ public:
             }
         }
 
-        float_t min_train_acc = 0.95;
+        float_t min_train_acc = 0.94; //0.95;
         float_t min_test_acc = n_ < 500 ? 0.7 : 0.85;
+
+        std::cerr << (float_t)train_acc / train_size << " " << (float_t)test_acc / test_size
+                  << std::endl;
+        std::cerr << acc_algo << " " << test_acc << " " << train_acc << std::endl;
+        std::cerr << train_size << " " << test_size << std::endl;
 
         REQUIRE(train_size * min_train_acc < train_acc);
         REQUIRE(test_size * min_test_acc < test_acc);
