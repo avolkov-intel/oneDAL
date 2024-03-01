@@ -47,14 +47,6 @@ class logloss_test : public te::float_algo_fixture<Param> {
 public:
     using float_t = Param;
 
-    void check_val(const float_t real,
-                   const float_t expected,
-                   const float_t rtol,
-                   const float_t atol) {
-        REQUIRE(abs(real - expected) < atol);
-        REQUIRE(abs(real - expected) / std::max(std::abs(expected), (float_t)1.0) < rtol);
-    }
-
     void generate_input(std::int64_t n = -1, std::int64_t p = -1) {
         if (n == -1 || p == -1) {
             this->n_ = GENERATE(7, 827, 13, 216);
@@ -210,7 +202,6 @@ public:
         auto out_derivative_host = out_derivative.to_host(this->get_queue());
 
         const float_t val_logloss2 = out_logloss.to_host(this->get_queue(), {}).at(0);
-        // check_val(val_logloss2, logloss, rtol, atol);
         IS_CLOSE(float_t, val_logloss2, logloss, rtol, atol);
 
         auto [out_derivative2, out_der_e2] =
@@ -293,7 +284,6 @@ public:
                                                      bsz);
             auto set_point_event = functor.update_x(params_gpu, true, {});
             wait_or_pass(set_point_event).wait_and_throw();
-            //check_val(logloss_scaled, functor.get_value(), rtol, atol);
             IS_CLOSE(float_t, logloss_scaled, functor.get_value(), rtol, atol)
             auto grad_func = functor.get_gradient();
             auto grad_func_host = grad_func.to_host(this->get_queue());
@@ -314,6 +304,8 @@ public:
         }
     }
 
+    // Log Loss is undefined for p = 0 and p = 1 so probabilities are clipped into [eps, 1 - eps]
+    // The exact values were taken from scikit-learn implementation
     float_t clip_prob(float_t prob) {
         constexpr float_t bottom = sizeof(float_t) > 4 ? 1e-15 : 1e-7;
         constexpr float_t top = float_t(1.0) - bottom;
@@ -362,27 +354,29 @@ public:
         return logloss;
     }
 
-    double naive_logloss(const ndview<float_t, 2>& data_host,
-                         const ndview<float_t, 1>& params_host,
-                         const ndview<std::int32_t, 1>& labels_host,
-                         const float_t L1,
-                         const float_t L2,
-                         bool fit_intercept,
-                         std::int64_t n_scaling = 0) {
+    float_t naive_logloss(const ndview<float_t, 2>& data_host,
+                          const ndview<float_t, 1>& params_host,
+                          const ndview<std::int32_t, 1>& labels_host,
+                          const float_t L1,
+                          const float_t L2,
+                          bool fit_intercept,
+                          std::int64_t n_scaling = 0) {
         const std::int64_t n = data_host.get_dimension(0);
         const std::int64_t p = data_host.get_dimension(1);
 
-        double logloss = 0;
+        float_t logloss = 0;
         std::int64_t st = fit_intercept;
         for (std::int64_t i = 0; i < n; ++i) {
-            double pred = 0;
+            float_t pred = 0;
             for (std::int64_t j = 0; j < p; ++j) {
-                pred += (double)params_host.at(j + st) * (double)data_host.at(i, j);
+                pred += params_host.at(j + st) * data_host.at(i, j);
             }
             if (fit_intercept) {
-                pred += (double)params_host.at(0);
+                pred += params_host.at(0);
             }
-            logloss += std::log(1 + std::exp(-(2 * labels_host.at(i) - 1) * pred));
+            float_t prob = clip_prob(float_t(1.0) / (1 + std::exp(-pred)));
+            logloss -=
+                labels_host.at(i) * std::log(prob) + (1 - labels_host.at(i)) * std::log(1 - prob);
         }
         if (n_scaling > 0) {
             logloss /= n_scaling;
@@ -508,7 +502,6 @@ public:
 
         for (std::int64_t i = 0; i < dim; ++i) {
             IS_CLOSE(float_t, out_derivative.at(i), derivative.at(i), rtol, atol)
-            //check_val(out_derivative.at(i), derivative.at(i), rtol, atol);
         }
     }
 
@@ -528,7 +521,6 @@ public:
 
         for (std::int64_t i = 0; i <= p; ++i) {
             for (std::int64_t j = 0; j <= p; ++j) {
-                // check_val(out_hessian.at(i, j), hessian.at(i, j), rtol, atol);
                 IS_CLOSE(float_t, out_hessian.at(i, j), hessian.at(i, j), rtol, atol)
             }
         }
@@ -564,7 +556,6 @@ public:
                 for (std::int64_t j = st; j < p + 1; ++j) {
                     correct += vec_host.at(j - st) * hessian_host.at(i, j);
                 }
-                //check_val(out_vector_host.at(i - st), correct, rtol, atol);
                 IS_CLOSE(float_t, out_vector_host.at(i - st), correct, rtol, atol);
             }
         }

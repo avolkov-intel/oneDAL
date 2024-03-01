@@ -56,43 +56,10 @@ public:
         return result;
     }
 
-    std::vector<logloss_function<float_t>> get_functors(comm_t comm,
-                                                        std::int64_t thr_cnt,
-                                                        table data,
-                                                        ndview<std::int32_t, 1>& labels,
-                                                        double L2,
-                                                        bool fit_intercept) {
-        //std::cerr << "before split input" << std::endl;
-        auto input = split_input_data(data, labels, thr_cnt);
-
-        std::cerr << "after split input" << std::endl;
-        std::cerr << input.size() << " " << thr_cnt << std::endl;
-
-        std::vector<logloss_function<float_t>> funcs;
-        funcs.reserve(thr_cnt);
-
-        for (int i = 0; i < thr_cnt; ++i) {
-            std::cerr << input[i].first << std::endl;
-            std::cerr << i << "!" << std::endl;
-            auto functor = logloss_function<float_t>(this->get_queue(),
-                                                     comm,
-                                                     input[i].first,
-                                                     input[i].second,
-                                                     float_t(L2),
-                                                     fit_intercept);
-            std::cerr << "after functor init" << std::endl;
-            funcs.push_back(functor);
-        }
-        std::cerr << "after loop" << std::endl;
-        return funcs;
-    }
-
     void run_spmd(std::int64_t thr_cnt, double L2, bool fit_intercept) {
         if (thr_cnt == -1) {
             thr_cnt = GENERATE(2, 4, 5);
         }
-
-        std::cerr << "begin" << std::endl;
 
         const std::int64_t n_all = this->data_.get_row_count();
 
@@ -107,13 +74,7 @@ public:
 
         comm_t comm{ this->get_queue(), thr_cnt };
 
-        std::cerr << "before functors" << std::endl;
-
-        // logloss_function has different regularization so we need to multiply it by 2 to allign with other implementations
-        //auto funcs = get_functors(comm, thr_cnt, this->data_, labels_gpu, L2 * 2, fit_intercept);
         std::int64_t num_checks = 5;
-
-        std::cerr << "after functors" << std::endl;
 
         std::vector<ndarray<float_t, 1>> vecs_host(num_checks), vecs_gpu(num_checks);
         rng<float_t> rn_gen;
@@ -125,10 +86,9 @@ public:
             vecs_gpu[ij] = vecs_host[ij].to_device(this->get_queue());
         }
 
-        std::cerr << "after functors init" << std::endl;
-
         auto input = split_input_data(this->data_, labels_gpu, thr_cnt);
         const auto results = comm.map([&](std::int64_t rank) {
+            // logloss_function has different regularization so we need to multiply it by 2 to allign with other implementations
             auto functor = logloss_function<float_t>(this->get_queue(),
                                                      comm,
                                                      input[rank].first,
@@ -138,8 +98,6 @@ public:
             sycl::event::wait_and_throw(functor.update_x(params_gpu, true, {}));
             base_matrix_operator<float_t>& hessp = functor.get_hessian_product();
 
-            //sycl::event::wait_and_throw(funcs[rank].update_x(params_gpu, true, {}));
-            //base_matrix_operator<float_t>& hessp = funcs[rank].get_hessian_product();
             std::vector<ndarray<float_t, 1>> out_vecs(num_checks);
             for (std::int64_t ij = 0; ij < num_checks; ++ij) {
                 out_vecs[ij] = ndarray<float_t, 1>::empty(this->get_queue(),
@@ -148,15 +106,10 @@ public:
                 hessp(vecs_gpu[ij], out_vecs[ij], {}).wait_and_throw();
             }
             auto res = std::make_tuple(functor.get_value(), functor.get_gradient(), out_vecs);
-
-            //auto res =
-            //    std::make_tuple(funcs[rank].get_value(), funcs[rank].get_gradient(), out_vecs);
             return res;
         });
 
         REQUIRE(results.size() == dal::detail::integral_cast<std::size_t>(thr_cnt));
-
-        std::cerr << "after init" << std::endl;
 
         auto data_array = row_accessor<const float_t>{ this->data_ }.pull(this->get_queue());
         auto data_host = ndarray<float_t, 2>::wrap(data_array.get_data(), { this->n_, this->p_ });
@@ -189,17 +142,14 @@ public:
                                fit_intercept,
                                n_all);
 
-        std::cerr << "before logloss check" << std::endl;
         for (std::int64_t k = 0; k < thr_cnt; ++k) {
             IS_CLOSE(float_t, std::get<0>(results[k]), logloss_gth, rtol, atol)
-            //this->check_val(std::get<0>(results[k]), logloss_gth, rtol, atol);
         }
 
         for (int k = 0; k < thr_cnt; ++k) {
             auto grad_host = std::get<1>(results[k]).to_host(this->get_queue());
             for (int j = 0; j < dim; ++j) {
                 IS_CLOSE(float_t, grad_host.at(j), grad_gth.at(j), rtol, atol)
-                // this->check_val(grad_host.at(j), grad_gth.at(j), rtol, atol);
             }
         }
 
@@ -220,7 +170,6 @@ public:
                 auto hessp_host = std::get<2>(results[k])[ij].to_host(this->get_queue());
                 for (std::int64_t j = 0; j < dim; ++j) {
                     IS_CLOSE(float_t, hessp_host.at(j), hessp_gth.at(j), rtol, atol)
-                    // this->check_val(hessp_host.at(j), hessp_gth.at(j), rtol, atol);
                 }
             }
         }

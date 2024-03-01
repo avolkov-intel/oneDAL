@@ -56,6 +56,7 @@ sycl::event compute_probabilities(sycl::queue& q,
     const Float bottom = sizeof(Float) == 4 ? 1e-7 : 1e-15;
     const Float top = Float(1.0) - bottom;
     // Log Loss is undefined for p = 0 and p = 1 so probabilities are clipped into [eps, 1 - eps]
+    // The exact values were taken from scikit-learn implementation
 
     return q.submit([&](sycl::handler& cgh) {
         cgh.depends_on(gemv_event);
