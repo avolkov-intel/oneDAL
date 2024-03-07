@@ -263,13 +263,17 @@ public:
 
         if (L1 == 0) {
             float_t logloss_scaled =
-                naive_logloss(data_host, params_host, labels_host, L1, L2, fit_intercept, n);
+                naive_logloss(data_host, params_host, labels_host, L1, L2, fit_intercept /*, n*/);
 
             auto gth_hessian_scaled = ndarray<float_t, 2>::empty(this->get_queue(),
                                                                  { p + 1, p + 1 },
                                                                  sycl::usm::alloc::host);
 
-            naive_hessian(data_host, predictions_host, gth_hessian_scaled, L2, fit_intercept, n);
+            naive_hessian(data_host,
+                          predictions_host,
+                          gth_hessian_scaled,
+                          L2,
+                          fit_intercept /*, n*/);
 
             std::int64_t bsz = -1;
             if (batch_test) {
@@ -296,7 +300,7 @@ public:
                                     L1,
                                     L2,
                                     fit_intercept,
-                                    n,
+                                    0l, //n,
                                     rtol,
                                     atol);
             base_matrix_operator<float_t>& hessp = functor.get_hessian_product();

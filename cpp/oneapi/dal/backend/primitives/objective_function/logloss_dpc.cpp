@@ -486,7 +486,7 @@ logloss_hessian_product<Float>::logloss_hessian_product(sycl::queue& q,
           L2_(L2),
           fit_intercept_(fit_intercept),
           n_(data.get_row_count()),
-          n_all_(data.get_row_count()),
+          n_all_(1),
           p_(data.get_column_count()),
           bsz_(bsz == -1 ? get_block_size(n_, p_) : bsz) {
     raw_hessian_ = ndarray<Float, 1>::empty(q_, { n_ }, sycl::usm::alloc::device);
@@ -507,13 +507,15 @@ logloss_hessian_product<Float>::logloss_hessian_product(sycl::queue& q,
           L2_(L2),
           fit_intercept_(fit_intercept),
           n_(data.get_row_count()),
-          n_all_(data.get_row_count()),
+          n_all_(1),
           p_(data.get_column_count()),
           bsz_(bsz == -1 ? get_block_size(n_, p_) : bsz) {
-    if (comm_.get_rank_count() > 1) {
-        ONEDAL_PROFILER_TASK(num_samples_all_reduce);
-        comm_.allreduce(n_all_).wait();
-    }
+    n_all_ = comm_.get_rank_count();
+
+    // if (comm_.get_rank_count() > 1) {
+    //     ONEDAL_PROFILER_TASK(num_samples_all_reduce);
+    //     comm_.allreduce(n_all_).wait();
+    // }
 
     raw_hessian_ = ndarray<Float, 1>::empty(q_, { n_ }, sycl::usm::alloc::device);
     buffer_ = ndarray<Float, 1>::empty(q_, { n_ }, sycl::usm::alloc::device);
@@ -720,7 +722,7 @@ logloss_function<Float>::logloss_function(sycl::queue q,
           data_(data),
           labels_(labels),
           n_(data.get_row_count()),
-          n_all_(data.get_row_count()),
+          n_all_(1),
           p_(data.get_column_count()),
           L2_(L2),
           fit_intercept_(fit_intercept),
@@ -746,7 +748,7 @@ logloss_function<Float>::logloss_function(sycl::queue q,
           data_(data),
           labels_(labels),
           n_(data.get_row_count()),
-          n_all_(data.get_row_count()),
+          n_all_(1),
           p_(data.get_column_count()),
           L2_(L2),
           fit_intercept_(fit_intercept),
@@ -758,10 +760,11 @@ logloss_function<Float>::logloss_function(sycl::queue q,
     gradient_ = ndarray<Float, 1>::empty(q_, { dimension_ }, sycl::usm::alloc::device);
     buffer_ = ndarray<Float, 1>::empty(q_, { p_ + 2 }, sycl::usm::alloc::device);
 
-    if (comm_.get_rank_count() > 1) {
-        ONEDAL_PROFILER_TASK(num_samples_all_reduce);
-        comm_.allreduce(n_all_).wait();
-    }
+    n_all_ = comm_.get_rank_count();
+    // if (comm_.get_rank_count() > 1) {
+    //     ONEDAL_PROFILER_TASK(num_samples_all_reduce);
+    //     comm_.allreduce(n_all_).wait();
+    // }
 }
 
 template <typename Float>

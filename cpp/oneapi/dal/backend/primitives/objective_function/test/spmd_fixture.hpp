@@ -61,7 +61,7 @@ public:
             thr_cnt = GENERATE(2, 4, 5);
         }
 
-        const std::int64_t n_all = this->data_.get_row_count();
+        //const std::int64_t n_all = this->data_.get_row_count();
 
         constexpr float_t rtol = sizeof(float_t) > 4 ? 1e-6 : 1e-4;
         constexpr float_t atol = sizeof(float_t) > 4 ? 1e-6 : 1e-2;
@@ -131,7 +131,8 @@ public:
                                                   float_t(0.0),
                                                   float_t(L2),
                                                   fit_intercept,
-                                                  n_all);
+                                                  thr_cnt
+                                                  /*n_all*/);
         this->naive_derivative(data_host,
                                probs_gth,
                                params_host,
@@ -140,7 +141,8 @@ public:
                                float_t(0.0),
                                float_t(L2),
                                fit_intercept,
-                               n_all);
+                               thr_cnt
+                               /*n_all*/);
 
         for (std::int64_t k = 0; k < thr_cnt; ++k) {
             IS_CLOSE(float_t, std::get<0>(results[k]), logloss_gth, rtol, atol)
@@ -153,7 +155,12 @@ public:
             }
         }
 
-        this->naive_hessian(data_host, probs_gth, hess_gth, float_t(L2), fit_intercept, n_all);
+        this->naive_hessian(data_host,
+                            probs_gth,
+                            hess_gth,
+                            float_t(L2),
+                            fit_intercept,
+                            thr_cnt /*n_all*/);
 
         const std::int64_t st = fit_intercept ? 0 : 1;
 
