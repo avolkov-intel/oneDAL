@@ -33,13 +33,16 @@
 #include "oneapi/dal/algo/logistic_regression/backend/optimizer_impl.hpp"
 #include "oneapi/dal/algo/logistic_regression/backend/gpu/train_kernel_common.hpp"
 
+#include "oneapi/dal/detail/debug.hpp"
+#include <iostream>
+
 namespace oneapi::dal::logistic_regression::backend {
 
 using dal::backend::context_gpu;
 
 namespace be = dal::backend;
 namespace pr = be::primitives;
-
+using dal::detail::operator<<;
 template <typename Float, typename Task>
 static train_result<Task> train(const context_gpu& ctx,
                                 const detail::descriptor_base<Task>& desc,
@@ -49,6 +52,10 @@ static train_result<Task> train(const context_gpu& ctx,
     // Move data to gpu
     const auto sample_count = input.get_data().get_row_count();
     const auto feature_count = input.get_data().get_column_count();
+    std::cout << "Input:" << std::endl;
+    std::cout << input.get_data() << std::endl;
+    std::cout << "Responses: " << std::endl;
+    std::cout << input.get_responses() << std::endl;
     auto queue = ctx.get_queue();
     pr::ndarray<Float, 2> data_nd =
         pr::table2ndarray<Float>(queue, input.get_data(), sycl::usm::alloc::device);

@@ -92,6 +92,7 @@ std::pair<sycl::event, std::int64_t> cg_solve(sycl::queue& queue,
         .wait_and_throw(); // compute l1_norm for stopping condition
     std::int64_t iter_num;
     for (iter_num = 0; iter_num < maxiter; ++iter_num) {
+        std::cout << "CG-solver " << iter_num << ": " << r_l1_norm << " " << threshold << std::endl;
         if (r_l1_norm < threshold) {
             // TODO check that r_norms are the same across diferent devices
             break;
