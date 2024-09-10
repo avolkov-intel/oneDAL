@@ -37,7 +37,7 @@ Float backtracking(sycl::queue queue,
     if (!x0_initialized) {
         precompute = f.update_x(x, false, deps);
     }
-    Float f0 = f.get_value();
+    Float f0 = f.get_value(); // Need to wait for precompute event !!!
     auto grad_f0 = f.get_gradient();
     Float df0 = 0;
     dot_product(queue, grad_f0, direction, result.get_mutable_data(), &df0, deps + precompute)
@@ -45,6 +45,7 @@ Float backtracking(sycl::queue queue,
     Float cur_val = 0;
     constexpr Float eps = std::numeric_limits<Float>::epsilon();
     bool is_first_iter = true;
+    std::cout << "Linesearch f0: " + std::to_string(f0) + ", df0: " + std::to_string(df0) + "\n" << std::endl; 
     while ((is_first_iter || cur_val > f0 + c1 * alpha * df0) && alpha > eps) {
         // TODO check that conditions are the same across diferent devices
         if (!is_first_iter) {
@@ -61,6 +62,7 @@ Float backtracking(sycl::queue queue,
         auto func_event_vec = f.update_x(result, false, { update_x_event });
         wait_or_pass(func_event_vec).wait_and_throw();
         cur_val = f.get_value();
+        std::cout << "Linesearch alpha: " + std::to_string(alpha) + ", cur_val: " + std::to_string(cur_val) + ", target: " + std::to_string(f0 + c1 * alpha * df0) + "\n" << std::endl;
     }
     return alpha;
 }

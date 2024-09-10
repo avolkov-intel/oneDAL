@@ -91,12 +91,14 @@ std::pair<sycl::event, std::int64_t> cg_solve(sycl::queue& queue,
     l1_norm<Float>(queue, residual, tmp_ptr, &r_l1_norm, { compute_r0_event })
         .wait_and_throw(); // compute l1_norm for stopping condition
     std::int64_t iter_num;
+    std::cout << "CG-solver threshold: " + std::to_string(threshold) + "\n" << std::endl;
     for (iter_num = 0; iter_num < maxiter; ++iter_num) {
+        std::string s2 = "CG-solver iter: " + std::to_string(iter_num) + ", r_l1_norm: " + std::to_string(r_l1_norm) + ", r_norm: " + std::to_string(r_norm) + ", alpha: " + std::to_string(alpha) + ", beta: " + std::to_string(beta) + "\n";
+        std::cout << s2 << std::endl;
         if (r_l1_norm < threshold) {
             // TODO check that r_norms are the same across diferent devices
             break;
         }
-
         auto compute_matmul_event =
             mul_operator(conj_vector, buffer, { compute_conj_event }); // compute A p_i
         dot_product<Float>(queue, conj_vector, buffer, tmp_ptr, &alpha, { compute_matmul_event })

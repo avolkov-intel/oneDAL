@@ -65,6 +65,9 @@ std::tuple<sycl::event, std::int64_t, std::int64_t> newton_cg(sycl::queue& queue
         l1_norm(queue, gradient, tmp_gpu, &grad_norm, update_event_vec).wait_and_throw();
         max_abs(queue, gradient, tmp_gpu, &grad_max_abs, update_event_vec).wait_and_throw();
 
+        std::string s1 = "Newton-CG iter: " + std::to_string(cur_iter_id) + ", grad_norm: " + std::to_string(grad_norm) + ", max_abs: " + std::to_string(grad_max_abs) + ", loss: " + std::to_string(f.get_value()) + "\n";
+        std::cout << s1 << std::endl;
+
         if (grad_max_abs < tol) {
             // TODO check that conditions are the same across diferent devices
             break;
