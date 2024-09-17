@@ -58,6 +58,14 @@ std::tuple<sycl::event, std::int64_t, std::int64_t> newton_cg(sycl::queue& queue
     std::int64_t inner_iter_sum = 0;
     while (cur_iter_id < maxiter) {
         cur_iter_id++;
+        auto x_host = x.to_host(queue, last_iter_deps);
+        std::string s2 = "Newton-CG iter " + std::to_string(cur_iter_id) + " Coef: ";
+        for (std::int64_t i = 0; i < x_host.get_dimension(0); ++i) {
+            s2 += std::to_string(x_host.at(i)) + " ";
+        }
+        s2 += "\n";
+        std::cout << s2 << std::endl; 
+
         auto update_event_vec = f.update_x(x, true, last_iter_deps);
         auto gradient = f.get_gradient();
 
