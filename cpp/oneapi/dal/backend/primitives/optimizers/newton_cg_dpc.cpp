@@ -57,14 +57,7 @@ std::tuple<sycl::event, std::int64_t, std::int64_t> newton_cg(sycl::queue& queue
     std::int64_t cur_iter_id = 0;
     std::int64_t inner_iter_sum = 0;
     while (cur_iter_id < maxiter) {
-        cur_iter_id++;
-        auto x_host = x.to_host(queue, last_iter_deps);
-        std::string s2 = "Newton-CG iter " + std::to_string(cur_iter_id) + " Coef: ";
-        for (std::int64_t i = 0; i < x_host.get_dimension(0); ++i) {
-            s2 += std::to_string(x_host.at(i)) + " ";
-        }
-        s2 += "\n";
-        std::cout << s2 << std::endl; 
+        cur_iter_id++; 
 
         auto update_event_vec = f.update_x(x, true, last_iter_deps);
         auto gradient = f.get_gradient();
@@ -75,6 +68,14 @@ std::tuple<sycl::event, std::int64_t, std::int64_t> newton_cg(sycl::queue& queue
 
         std::string s1 = "Newton-CG iter: " + std::to_string(cur_iter_id) + ", grad_norm: " + std::to_string(grad_norm) + ", max_abs: " + std::to_string(grad_max_abs) + ", loss: " + std::to_string(f.get_value()) + "\n";
         std::cout << s1 << std::endl;
+
+        auto x_host = x.to_host(queue, last_iter_deps);
+        std::string s2 = "Newton-CG iter " + std::to_string(cur_iter_id) + " Coef: ";
+        for (std::int64_t i = 0; i < x_host.get_dimension(0); ++i) {
+            s2 += std::to_string(x_host.at(i)) + " ";
+        }
+        s2 += "\n";
+        std::cout << s2 << std::endl;
 
         if (grad_max_abs < tol) {
             // TODO check that conditions are the same across diferent devices
