@@ -54,6 +54,52 @@ struct PredictDispatcher
     typedef PredictDispatcher<hasUnorderedFeatures, hasAnyMissing> type;
 };
 
+const FeatureIndexType numDenseLayers = 5;
+
+
+template <typename algorithmFPType>
+inline FeatureIndexType updateIndex(FeatureIndexType idx, algorithmFPType valueFromDataSet, const ModelFPType * splitPoints, const int * defaultLeft,
+                                    const FeatureTypes & featTypes, FeatureIndexType splitFeature, const PredictDispatcher<false, false> & dispatcher)
+{
+    return idx * 2 + (valueFromDataSet > splitPoints[idx]);
+}
+
+template <typename algorithmFPType>
+inline FeatureIndexType updateIndex(FeatureIndexType idx, algorithmFPType valueFromDataSet, const ModelFPType * splitPoints, const int * defaultLeft,
+                                    const FeatureTypes & featTypes, FeatureIndexType splitFeature, const PredictDispatcher<true, false> & dispatcher)
+{
+    return idx * 2 + (featTypes.isUnordered(splitFeature) ? valueFromDataSet != splitPoints[idx] : valueFromDataSet > splitPoints[idx]);
+}
+
+template <typename algorithmFPType>
+inline FeatureIndexType updateIndex(FeatureIndexType idx, algorithmFPType valueFromDataSet, const ModelFPType * splitPoints, const int * defaultLeft,
+                                    const FeatureTypes & featTypes, FeatureIndexType splitFeature, const PredictDispatcher<false, true> & dispatcher)
+{
+    if (checkFinitenessByComparison(valueFromDataSet))
+    {
+        return idx * 2 + (defaultLeft[idx] != 1);
+    }
+    else
+    {
+        return idx * 2 + (valueFromDataSet > splitPoints[idx]);
+    }
+}
+
+template <typename algorithmFPType>
+inline FeatureIndexType updateIndex(FeatureIndexType idx, algorithmFPType valueFromDataSet, const ModelFPType * splitPoints, const int * defaultLeft,
+                                    const FeatureTypes & featTypes, FeatureIndexType splitFeature, const PredictDispatcher<true, true> & dispatcher)
+{
+    if (checkFinitenessByComparison(valueFromDataSet))
+    {
+        return idx * 2 + (defaultLeft[idx] != 1);
+    }
+    else
+    {
+        return idx * 2 + (featTypes.isUnordered(splitFeature) ? valueFromDataSet != splitPoints[idx] : valueFromDataSet > splitPoints[idx]);
+    }
+}
+
+
 template <typename algorithmFPType>
 inline FeatureIndexType updateIndex(FeatureIndexType idx, algorithmFPType valueFromDataSet, const ModelFPType * splitPoints, const size_t * leftChildInexes, const int * defaultLeft,
                                     const FeatureTypes & featTypes, FeatureIndexType splitFeature, const PredictDispatcher<false, false> & dispatcher)
@@ -111,7 +157,19 @@ inline void predictForTreeVector(const DecisionTreeType & t, const FeatureTypes 
 
     const FeatureIndexType maxLvl = t.getMaxLvl();
 
-    for (FeatureIndexType itr = 0; itr < maxLvl; itr++)
+    for (FeatureIndexType itr = 0; itr < std::min(numDenseLayers, maxLvl); itr++)
+    {
+        PRAGMA_FORCE_SIMD
+        PRAGMA_VECTOR_ALWAYS
+        for (FeatureIndexType k = 0; k < vectorBlockSize; k++)
+        {
+            const FeatureIndexType idx          = i[k];
+            const FeatureIndexType splitFeature = fIndexes[idx];
+            i[k] = updateIndex(idx, x[splitFeature + k * nFeat], values, defaultLeft, featTypes, splitFeature, dispatcher);
+        }
+    }
+
+    for (FeatureIndexType itr = numDenseLayers; itr < maxLvl; itr++)
     {
         PRAGMA_FORCE_SIMD
         PRAGMA_VECTOR_ALWAYS
@@ -144,7 +202,12 @@ inline algorithmFPType predictForTree(const DecisionTreeType & t, const FeatureT
 
     FeatureIndexType i = 1;
 
-    for (FeatureIndexType itr = 0; itr < maxLvl; itr++)
+    for (FeatureIndexType itr = 0; itr < std::min(numDenseLayers, maxLvl); itr++) {
+        const FeatureIndexType splitFeature = fIndexes[i];
+        i                                   = updateIndex(i, x[splitFeature], values, defaultLeft, featTypes, splitFeature, dispatcher);
+    }
+
+    for (FeatureIndexType itr = numDenseLayers; itr < maxLvl; itr++)
     {
         const FeatureIndexType splitFeature = fIndexes[i];
         i                                   = updateIndex(i, x[splitFeature], values, leftIds, defaultLeft, featTypes, splitFeature, dispatcher);
