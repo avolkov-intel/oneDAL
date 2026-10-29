@@ -325,7 +325,7 @@ services::Status CrossEntropyLossKernel<algorithmFPType, method, cpu>::doCompute
     }
 
     DAAL_OVERFLOW_CHECK_BY_MULTIPLICATION(size_t, nRowsInBlock, nClasses);
-    TlsMem<algorithmFPType, cpu> tlsLogP(nRowsInBlock * nClasses);
+    LsMem<algorithmFPType, cpu> lsLogP(nRowsInBlock * nClasses);
     TArrayScalable<algorithmFPType, cpu> grads;
     if (gradientNT)
     {
@@ -333,7 +333,7 @@ services::Status CrossEntropyLossKernel<algorithmFPType, method, cpu>::doCompute
         grads.reset(nDataBlocks * nBeta);
         DAAL_CHECK_MALLOC(grads.get());
     }
-    TlsMem<algorithmFPType, cpu> tlsSoftmaxSum(nClasses);
+    LsMem<algorithmFPType, cpu> lsSoftmaxSum(nClasses);
     const algorithmFPType div = static_cast<algorithmFPType>(1) / static_cast<algorithmFPType>(n);
     const bool bL1            = parameter->penaltyL1 > 0;
     const bool bL2            = parameter->penaltyL2 > 0;
@@ -363,12 +363,12 @@ services::Status CrossEntropyLossKernel<algorithmFPType, method, cpu>::doCompute
             }
 
             //f = softmax(f)
-            algorithmFPType * softmaxSums = nullptr;
+            algorithmFPType * const softmaxSums = lsSoftmaxSum.local();
+            DAAL_CHECK_THR(softmaxSums, services::ErrorMemoryAllocationFailed);
+            daal::ls_release<algorithmFPType> softmaxSumsRelease(lsSoftmaxSum, softmaxSums);
 
             if (interceptFlag && gradientNT)
             {
-                softmaxSums = tlsSoftmaxSum.local();
-                DAAL_CHECK_THR(softmaxSums, services::ErrorMemoryAllocationFailed);
                 softmax(fPtrLocal, fPtrLocal, nRowsToProcess, nClasses, softmaxSums, yLocal);
             }
             else
@@ -381,8 +381,9 @@ services::Status CrossEntropyLossKernel<algorithmFPType, method, cpu>::doCompute
             {
                 DAAL_PROFILER_TASK(crossEntropy.computeValueResult);
 
-                algorithmFPType * const logP = tlsLogP.local();
+                algorithmFPType * const logP = lsLogP.local();
                 DAAL_CHECK_THR(logP, services::ErrorMemoryAllocationFailed);
+                daal::ls_release<algorithmFPType> logPRelease(lsLogP, logP);
                 daal::internal::MathInst<algorithmFPType, cpu>::vLog(nRowsToProcess * nClasses, fPtrLocal, logP);
 
                 algorithmFPType localValue(0);
