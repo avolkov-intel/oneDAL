@@ -30,6 +30,8 @@
 
 #include <algorithm> // std::min
 #include <stdlib.h>  // malloc and free
+#include <mutex>
+#include <unordered_map>
 #include <tbb/tbb.h>
 #include <tbb/spin_mutex.h>
 #include <tbb/scalable_allocator.h>
@@ -290,26 +292,50 @@ DAAL_EXPORT int64_t _daal_parallel_reduce_int32ptr_int64_simple(const int32_t * 
     }
 }
 
+// Arena with `concurrency` slots, created on first use and never destroyed (oneDAL does not finalize TBB).
+// The mutex protects the cache from concurrent first use by several user threads.
+static tbb::task_arena & getLimitedArena(int concurrency)
+{
+    static std::mutex mtx;
+    static std::unordered_map<int, tbb::task_arena *> arenas;
+    std::lock_guard<std::mutex> lock(mtx);
+    tbb::task_arena *& arena = arenas[concurrency];
+    if (!arena) arena = new tbb::task_arena(concurrency);
+    return *arena;
+}
+
 DAAL_EXPORT void _daal_static_threader_for(int64_t n, const void * a, daal::functype_static func)
 {
     const int64_t nthreads = std::min(daal::threader_env()->getNumberOfThreads(), static_cast<size_t>(_daal_threader_get_max_threads()));
-    if (nthreads > 1)
+    if (nthreads > 1 && n > 1)
     {
-        const int64_t nblocks_per_thread = n / nthreads + !!(n % nthreads);
+        const auto run = [&](const int64_t ntasks) {
+            const int64_t nblocks_per_thread = n / ntasks + !!(n % ntasks);
 
-        tbb::parallel_for(
-            tbb::blocked_range<int64_t>(0, nthreads, 1),
-            [&](tbb::blocked_range<int64_t> r) {
-                const int64_t tid   = r.begin();
-                const int64_t begin = tid * nblocks_per_thread;
-                const int64_t end   = n < begin + nblocks_per_thread ? n : begin + nblocks_per_thread;
+            tbb::parallel_for(
+                tbb::blocked_range<int64_t>(0, ntasks, 1),
+                [&](tbb::blocked_range<int64_t> r) {
+                    const int64_t tid   = r.begin();
+                    const int64_t begin = tid * nblocks_per_thread;
+                    const int64_t end   = n < begin + nblocks_per_thread ? n : begin + nblocks_per_thread;
 
-                for (int64_t i = begin; i < end; ++i)
-                {
-                    func(i, tid, a);
-                }
-            },
-            tbb::static_partitioner());
+                    for (int64_t i = begin; i < end; ++i)
+                    {
+                        func(i, tid, a);
+                    }
+                },
+                tbb::static_partitioner());
+        };
+        // With fewer iterations than threads, a smaller arena keeps the workers that would get no work
+        // out of the fork-join, so they sleep instead of spinning.
+        if (n < nthreads)
+        {
+            getLimitedArena(static_cast<int>(n)).execute([&]() { run(n); });
+        }
+        else
+        {
+            run(nthreads);
+        }
     }
     else
     {
